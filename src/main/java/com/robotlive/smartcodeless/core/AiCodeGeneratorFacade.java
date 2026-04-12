@@ -1,14 +1,21 @@
 package com.robotlive.smartcodeless.core;
 
+import cn.hutool.json.JSONUtil;
 import com.robotlive.smartcodeless.ai.AiCodeGeneratorService;
 import com.robotlive.smartcodeless.ai.AiCodeGeneratorServiceFactory;
 import com.robotlive.smartcodeless.ai.model.HtmlCodeResult;
 import com.robotlive.smartcodeless.ai.model.MultiFileCodeResult;
+import com.robotlive.smartcodeless.ai.model.message.AiResponseMessage;
+import com.robotlive.smartcodeless.ai.model.message.ToolExecutedMessage;
+import com.robotlive.smartcodeless.ai.model.message.ToolRequestMessage;
 import com.robotlive.smartcodeless.core.parser.CodeParserExecutor;
 import com.robotlive.smartcodeless.core.saver.CodeFileSaverExecutor;
 import com.robotlive.smartcodeless.exception.BusinessException;
 import com.robotlive.smartcodeless.exception.ErrorCode;
 import com.robotlive.smartcodeless.model.enums.CodeGenTypeEnum;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecution;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,7 +51,7 @@ public class AiCodeGeneratorFacade {
         }
 
         // 根据 appId 获取相应的 AI 服务实例
-        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
 
         return switch (codeGenTypeEnum) {
             case HTML -> {
@@ -74,7 +81,7 @@ public class AiCodeGeneratorFacade {
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"传入参数为空");
         }
         // 根据 appId 获取相应的 AI 服务实例
-        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId);
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
 
         return switch (codeGenTypeEnum) {
             case HTML -> {
@@ -86,6 +93,14 @@ public class AiCodeGeneratorFacade {
                 Flux<String> codeStream = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
                 // 执行AI流式转换和文件保存
                 yield processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
+            }
+            case VUE_PROJECT -> {
+//                Flux<String> codeStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
+                TokenStream codeStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage); // 返回的是TokenStream对象
+                // 因为需要重新为VUE工程进行agent的消息返回，需要额外的工具回调类，选择利用新的dev/langchain4j进行覆盖
+//                yield  processCodeStream(codeStream, CodeGenTypeEnum.VUE_PROJECT, appId);
+                // 用processTokenStream，但是processTokenStream里面暂时没有存储文件的方式
+                yield processTokenStream(codeStream); // 用processTokenStream替代
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -118,6 +133,37 @@ public class AiCodeGeneratorFacade {
         });
     }
 
+
+    /**
+     * 将 TokenStream 转换为 Flux<String>，并传递工具调用信息
+     *
+     * @param tokenStream TokenStream 对象
+     * @return Flux<String> 流式响应
+     */
+    private Flux<String> processTokenStream(TokenStream tokenStream){
+        return Flux.create(sink -> {
+            tokenStream.onPartialResponse((String partialResponse) -> {
+                AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+            })
+                    .onPartialToolExecutionRequest((index,toolExecutionRequest) -> {
+                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
+                        sink.next(JSONUtil.toJsonStr(toolRequestMessage));
+                    })
+                    .onToolExecuted((ToolExecution toolExecution) -> {
+                        ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
+                        sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+                    })
+                    .onCompleteResponse((ChatResponse response) -> {
+                        sink.complete();
+                    })
+                    .onError((Throwable error) -> {
+                        error.printStackTrace();
+                        sink.error(error);
+                    })
+                    .start();
+        });
+    }
 
 //    /**
 //     * 门面设计模式

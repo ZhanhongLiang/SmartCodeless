@@ -1,5 +1,6 @@
 package com.robotlive.smartcodeless.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.RandomUtil;
@@ -7,8 +8,11 @@ import cn.hutool.core.util.StrUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import com.robotlive.smartcodeless.ai.AiCodeGenTypeRoutingService;
 import com.robotlive.smartcodeless.constant.AppConstant;
 import com.robotlive.smartcodeless.core.AiCodeGeneratorFacade;
+import com.robotlive.smartcodeless.core.builder.VueProjectBuilder;
+import com.robotlive.smartcodeless.core.handler.StreamHandlerExecutor;
 import com.robotlive.smartcodeless.exception.BusinessException;
 import com.robotlive.smartcodeless.exception.ErrorCode;
 import com.robotlive.smartcodeless.exception.ThrowUtils;
@@ -23,6 +27,7 @@ import com.robotlive.smartcodeless.model.vo.AppVO;
 import com.robotlive.smartcodeless.model.vo.UserVO;
 import com.robotlive.smartcodeless.service.AppService;
 import com.robotlive.smartcodeless.service.ChatHistoryService;
+import com.robotlive.smartcodeless.service.ScreenshotService;
 import com.robotlive.smartcodeless.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -61,6 +66,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     @Resource
     AiCodeGeneratorFacade  aiCodeGeneratorFacade;
 
+    @Resource
+    StreamHandlerExecutor streamHandlerExecutor;
+
+    @Resource
+    private VueProjectBuilder vueProjectBuilder;
+
+    @Resource
+    private ScreenshotService screenshotService;
+
+    @Resource
+    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
+
     @Override
     public Long addApp(AppAddRequest appAddRequest, User loginUser){
         // initPrompt就是用户初始提示词,需要先拿到该词
@@ -74,7 +91,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 应用名称暂时为 initPrompt 前 12 位
         app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
         // 暂时设置为多文件生成
-        app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue()); // 这里需要暂时设置为多文件生成
+        app.setCodeGenType(CodeGenTypeEnum.VUE_PROJECT.getValue()); // 这里需要暂时设置为VUE工程
         // 插入数据库
         boolean result = this.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -282,24 +299,27 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 这个是用户输入的信息，addChatMessage
         chatHistoryService.addChatMessage(appId,message, ChatHistoryMessageTypeEnum.USER.getValue(),loginUser.getId());
         // 6. 调用 AI 生成代码（流式）
-        Flux<String> contentFlux  = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+        Flux<String> codeStream   = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
+        // 收集 AI 响应的内容，并且在完成后保存记录到对话历史
+        return streamHandlerExecutor.doExecute(codeStream,chatHistoryService,appId,loginUser,codeGenTypeEnum);
+
         // 7. 收集 AI 响应的内容，并且在完成后保存记录到对话历史
-        StringBuilder aiResponseBuilder = new StringBuilder();
-        // 这个是保存后面AI返回的信息, 就是需要保存AI返回的信息到chatHistoryService历史对话中
-        return contentFlux
-                .map(chunk ->{
-                    // 实时收集 AI 响应的内容
-                    aiResponseBuilder.append(chunk);
-                    return chunk;
-                }).doOnComplete(() ->{
-                    // 流式返回完成后，保存 AI 消息到对话历史中
-                    String aiResponse = aiResponseBuilder.toString();
-                    chatHistoryService.addChatMessage(appId,message, ChatHistoryMessageTypeEnum.AI.getValue(),loginUser.getId());
-                }).doOnError(error->{
-                    // 如果 AI 回复失败，也需要保存记录到数据库中
-                    String errorMessage = "AI 回复失败：" + error.getMessage();
-                    chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-                });
+//        StringBuilder aiResponseBuilder = new StringBuilder();
+//        // 这个是保存后面AI返回的信息, 就是需要保存AI返回的信息到chatHistoryService历史对话中
+//        return contentFlux
+//                .map(chunk ->{
+//                    // 实时收集 AI 响应的内容
+//                    aiResponseBuilder.append(chunk);
+//                    return chunk;
+//                }).doOnComplete(() ->{
+//                    // 流式返回完成后，保存 AI 消息到对话历史中
+//                    String aiResponse = aiResponseBuilder.toString();
+//                    chatHistoryService.addChatMessage(appId,aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(),loginUser.getId());
+//                }).doOnError(error->{
+//                    // 如果 AI 回复失败，也需要保存记录到数据库中
+//                    String errorMessage = "AI 回复失败：" + error.getMessage();
+//                    chatHistoryService.addChatMessage(appId, errorMessage, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+//                });
     }
 
     /**
@@ -336,8 +356,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (!sourceDir.exists() || !sourceDir.isDirectory()) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用代码路径不存在，请先生成应用");
         }
+        // 7. Vue 项目特殊处理：执行构建
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+        if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
+            // Vue 项目需要构建
+            boolean buildSuccess = vueProjectBuilder.buildProject(sourceDirPath);
+            ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR, "Vue 项目构建失败，请重试");
+            // 检查 dist 目录是否存在
+            File distDir = new File(sourceDirPath, "dist");
+            ThrowUtils.throwIf(!distDir.exists(), ErrorCode.SYSTEM_ERROR, "Vue 项目构建完成但未生成 dist 目录");
+            // 构建完成后，需要将构建后的文件复制到部署目录
+            sourceDir = distDir;
+        }
 
-        // 7. 复制文件到部署目录
+        // 8. 复制文件到部署目录
         String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
         try {
             FileUtil.copyContent(sourceDir, new File(deployDirPath), true);
@@ -353,7 +385,53 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         boolean updateResult = this.updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
         // 9. 返回可访问的 URL 地址
-        return String.format("%s/%s", AppConstant.CODE_DEPLOY_HOST, deployKey);
+//        return String.format("%s/%s", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        String appDeployUrl  = String.format("%s/%s", AppConstant.CODE_DEPLOY_HOST, deployKey);
+        // 使用截图工具，并且上传到Cos对象存储中
+        generateAppScreenshotAsync(appId, appDeployUrl);
+        return appDeployUrl;
+    }
+
+    @Override
+    public void generateAppScreenshotAsync(Long appId, String appUrl) {
+        // 使用虚拟线程并执行
+        Thread.startVirtualThread(() -> {
+            // 调用截图服务生成截图并上传
+            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+            // 更新数据库的封面
+            App updateApp = new App();
+            updateApp.setId(appId);
+            updateApp.setCover(screenshotUrl);
+            boolean updated = this.updateById(updateApp);
+            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+        });
+    }
+
+    /**
+     *  抽象出来, appController的逻辑
+     * @param appAddRequest
+     * @param loginUser
+     * @return
+     */
+    @Override
+    public Long createApp(AppAddRequest appAddRequest, User loginUser) {
+        // 参数校验
+        String initPrompt = appAddRequest.getInitPrompt();
+        ThrowUtils.throwIf(StrUtil.isBlank(initPrompt), ErrorCode.PARAMS_ERROR, "初始化 prompt 不能为空");
+        // 构造入库对象
+        App app = new App();
+        BeanUtil.copyProperties(appAddRequest, app);
+        app.setUserId(loginUser.getId());
+        // 应用名称暂时为 initPrompt 前 12 位
+        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+        // 使用 AI 智能选择代码生成类型
+        CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        app.setCodeGenType(selectedCodeGenType.getValue());
+        // 插入数据库
+        boolean result = this.save(app);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        log.info("应用创建成功，ID: {}, 类型: {}", app.getId(), selectedCodeGenType.getValue());
+        return app.getId();
     }
 
 

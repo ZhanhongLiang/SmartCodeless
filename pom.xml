@@ -11,6 +11,7 @@
     <groupId>com.robotlive</groupId>
     <artifactId>smartcodeless</artifactId>
     <version>0.0.1-SNAPSHOT</version>
+<!--    <packaging>jar</packaging>-->
     <name>smartcodeless</name>
     <description>smartcodeless</description>
     <url/>
@@ -148,6 +149,22 @@
             <version>5.6.227</version>
         </dependency>
 
+        <!-- Redisson -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.50.0</version>
+        </dependency>
+
+        <!-- 监控 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
 
     </dependencies>
 

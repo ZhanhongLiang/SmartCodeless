@@ -28,9 +28,9 @@ import java.util.Set;
 @Component
 public class JsonMessageStreamHandler {
 
-
-    @Resource
-    private VueProjectBuilder vueProjectBuilder;
+//
+//    @Resource
+//    private VueProjectBuilder vueProjectBuilder;
 
 
     @Resource
@@ -64,9 +64,9 @@ public class JsonMessageStreamHandler {
                     // 流式返回完成后，保存 AI 消息到对话历史中
                     String aiResponse = chatHistoryStringBuilder.toString();
                     chatHistoryService.addChatMessage(appId,aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(),loginUser.getId());
-                    // 异步构造 Vue 项目
-                    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                    vueProjectBuilder.buildProjectAsync(projectPath);
+//                    // 异步构造 Vue 项目
+//                    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
+//                    vueProjectBuilder.buildProjectAsync(projectPath);
                 }).doOnError(error->{
                     // 如果 AI 回复失败，也需要保存记录到数据库中
                     String errorMessage = "AI 回复失败：" + error.getMessage();

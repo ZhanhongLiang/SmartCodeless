@@ -14,8 +14,10 @@ import com.robotlive.smartcodeless.ai.tools.FileWriteTool;
 import com.robotlive.smartcodeless.ai.tools.ToolManager;
 import com.robotlive.smartcodeless.exception.BusinessException;
 import com.robotlive.smartcodeless.exception.ErrorCode;
+import com.robotlive.smartcodeless.guardrail.PromptSafetyInputGuardrail;
 import com.robotlive.smartcodeless.model.enums.CodeGenTypeEnum;
 import com.robotlive.smartcodeless.service.ChatHistoryService;
+import com.robotlive.smartcodeless.utils.SpringContextUtil;
 import dev.langchain4j.community.store.memory.chat.redis.RedisChatMemoryStore;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -36,16 +38,13 @@ import java.time.Duration;
 @Slf4j
 public class AiCodeGeneratorServiceFactory {
 
-    @Resource
+    @Resource(name = "openAiChatModel")
     private ChatModel chatModel;
 
 //    @Resource
 //    private StreamingChatModel streamingChatModel;
-    @Resource
-    private StreamingChatModel openAiStreamingChatModel;
-
-    @Resource
-    private StreamingChatModel reasoningStreamingChatModel;
+// 这里不直接按类型注入 StreamingChatModel，避免与自动配置产生多个同类型 Bean 冲突
+// 实际使用时通过 SpringContextUtil 按名称获取 prototype Bean
 
     @Resource
     private RedisChatMemoryStore redisChatMemoryStore;
@@ -121,7 +120,24 @@ public class AiCodeGeneratorServiceFactory {
         // 一个AiService，但是可以多个appId, 也就是利用这个实现了隔离
         // 根据不同类型选择不同的生成代码逻辑
         return switch (codeGenType){
-            case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
+//            case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
+//                    // 调用模型
+//                    .streamingChatModel(reasoningStreamingChatModel)
+//                    // 来处理appId记忆隔离问题
+//                    .chatMemoryProvider(memoryId -> chatMemory)
+//                    // 调用tools, 来指定agent调用写入工具类
+////                    .tools(new FileWriteTool())
+//                    .tools(toolManager.getAllTools())
+//                    // 处理工具调用幻觉问题
+//                    .hallucinatedToolNameStrategy(toolExecutionRequest ->
+//                            ToolExecutionResultMessage.from(toolExecutionRequest,
+//                                    "Error: there is no tool called " + toolExecutionRequest.name())
+//                    )
+//                    .build();
+            case VUE_PROJECT -> {
+                // 使用spring的多例模式进行bean注入
+                StreamingChatModel reasoningStreamingChatModel = SpringContextUtil.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
+                yield AiServices.builder(AiCodeGeneratorService.class)
                     // 调用模型
                     .streamingChatModel(reasoningStreamingChatModel)
                     // 来处理appId记忆隔离问题
@@ -133,13 +149,24 @@ public class AiCodeGeneratorServiceFactory {
                     .hallucinatedToolNameStrategy(toolExecutionRequest ->
                             ToolExecutionResultMessage.from(toolExecutionRequest,
                                     "Error: there is no tool called " + toolExecutionRequest.name())
-                    )
-                    .build();
-            case HTML,MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)
-                    .chatModel(chatModel)
-                    .streamingChatModel(openAiStreamingChatModel)
-                    .chatMemory(chatMemory) // 加载记忆
-                    .build();
+                    ).inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
+                        .build();
+
+            }
+            case HTML,MULTI_FILE -> {
+                StreamingChatModel openAiStreamingChatModel = SpringContextUtil.getBean("streamingChatModelPrototype", StreamingChatModel.class);
+                yield AiServices.builder(AiCodeGeneratorService.class)
+                        .chatModel(chatModel)
+                        .streamingChatModel(openAiStreamingChatModel)
+                        .chatMemory(chatMemory) // 加载记忆
+                        .inputGuardrails(new PromptSafetyInputGuardrail()) // 添加输入护轨
+                        .build();
+            }
+//            case HTML,MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)
+//                    .chatModel(chatModel)
+//                    .streamingChatModel(openAiStreamingChatModel)
+//                    .chatMemory(chatMemory) // 加载记忆
+//                    .build();
             default ->
                     throw new BusinessException(ErrorCode.SYSTEM_ERROR, "不支持的代码生成类型: " + codeGenType.getValue());
         };

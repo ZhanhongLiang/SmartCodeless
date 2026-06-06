@@ -8,6 +8,9 @@ import com.robotlive.smartcodeless.ai.model.MultiFileCodeResult;
 import com.robotlive.smartcodeless.ai.model.message.AiResponseMessage;
 import com.robotlive.smartcodeless.ai.model.message.ToolExecutedMessage;
 import com.robotlive.smartcodeless.ai.model.message.ToolRequestMessage;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEmitter;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEventType;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamPayloads;
 import com.robotlive.smartcodeless.constant.AppConstant;
 import com.robotlive.smartcodeless.core.builder.VueProjectBuilder;
 import com.robotlive.smartcodeless.core.parser.CodeParserExecutor;
@@ -113,6 +116,31 @@ public class AiCodeGeneratorFacade {
         };
     }
 
+    public Flux<String> generateAndSaveCodeStreamV2(String userMessage,
+                                                    CodeGenTypeEnum codeGenTypeEnum,
+                                                    Long appId,
+                                                    AgentStreamEmitter emitter,
+                                                    boolean enableDiff) {
+        if (codeGenTypeEnum == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"传入参数为空");
+        }
+        AiCodeGeneratorService aiCodeGeneratorService = aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId,codeGenTypeEnum);
+        return switch (codeGenTypeEnum) {
+            case HTML -> {
+                Flux<String> codeStream = aiCodeGeneratorService.generateHtmlCodeStream(userMessage);
+                yield processCodeStream(codeStream, CodeGenTypeEnum.HTML, appId);
+            }
+            case MULTI_FILE -> {
+                Flux<String> codeStream = aiCodeGeneratorService.generateMultiFileCodeStream(userMessage);
+                yield processCodeStream(codeStream, CodeGenTypeEnum.MULTI_FILE, appId);
+            }
+            case VUE_PROJECT -> {
+                TokenStream codeStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
+                yield processTokenStreamV2(codeStream, appId, emitter);
+            }
+        };
+    }
+
 
     /**
      * 继续封装, 根据codeGenTypeEnum
@@ -166,6 +194,47 @@ public class AiCodeGeneratorFacade {
                     })
                     .onError((Throwable error) -> {
                         error.printStackTrace();
+                        sink.error(error);
+                    })
+                    .start();
+        });
+    }
+
+    private Flux<String> processTokenStreamV2(TokenStream tokenStream, Long appId, AgentStreamEmitter emitter){
+        return Flux.create(sink -> {
+            tokenStream.onPartialResponse((String partialResponse) -> {
+                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                    })
+                    .onPartialToolExecutionRequest((index,toolExecutionRequest) -> {
+                        emitter.publish(AgentStreamEventType.TOOL_CALL,
+                                AgentStreamPayloads.toolCall(
+                                        toolExecutionRequest.name(),
+                                        "started",
+                                        toolExecutionRequest.name(),
+                                        null));
+                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
+                        sink.next(JSONUtil.toJsonStr(toolRequestMessage));
+                    })
+                    .onToolExecuted((ToolExecution toolExecution) -> {
+                        emitter.publish(AgentStreamEventType.TOOL_CALL,
+                                AgentStreamPayloads.toolCall(
+                                        toolExecution.request().name(),
+                                        "success",
+                                        toolExecution.result(),
+                                        null));
+                        ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
+                        sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+                    })
+                    .onCompleteResponse((ChatResponse response) -> {
+                        emitter.status("building-preview", "Building Vue project for preview");
+                        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
+                        vueProjectBuilder.buildProject(projectPath);
+                        sink.complete();
+                    })
+                    .onError((Throwable error) -> {
+                        emitter.publish(AgentStreamEventType.ERROR,
+                                AgentStreamPayloads.error("AI_ERROR", "AI generation failed"));
                         sink.error(error);
                     })
                     .start();

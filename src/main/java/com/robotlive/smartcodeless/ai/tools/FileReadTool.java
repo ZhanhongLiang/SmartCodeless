@@ -5,6 +5,7 @@ import com.robotlive.smartcodeless.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,8 @@ import java.nio.file.Paths;
 @Component
 public class FileReadTool extends BaseTool {
 
+    @Resource
+    private ToolEventPublisher toolEventPublisher;
 
     @Tool("读取指定路径的文件内容")
     public String readFile(
@@ -28,6 +31,7 @@ public class FileReadTool extends BaseTool {
             String relativeFilePath,
             @ToolMemoryId Long appId
     ) {
+        long startedAt = toolEventPublisher.started(appId, getToolName(), DiffUtils.summarize("read", relativeFilePath));
         try {
             Path path = Paths.get(relativeFilePath);
             if (!path.isAbsolute()) {
@@ -36,12 +40,16 @@ public class FileReadTool extends BaseTool {
                 path = projectRoot.resolve(relativeFilePath);
             }
             if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("read missing", relativeFilePath), startedAt);
                 return "错误：文件不存在或不是文件 - " + relativeFilePath;
             }
-            return Files.readString(path);
+            String content = Files.readString(path);
+            toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("read", relativeFilePath), startedAt);
+            return content;
         } catch (IOException e) {
             String errorMessage = "读取文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
+            toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("read failed", relativeFilePath), startedAt);
             return errorMessage;
         }
     }

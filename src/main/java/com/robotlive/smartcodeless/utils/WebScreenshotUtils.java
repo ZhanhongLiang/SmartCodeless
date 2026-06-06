@@ -7,7 +7,6 @@ import cn.hutool.core.util.StrUtil;
 import com.robotlive.smartcodeless.exception.BusinessException;
 import com.robotlive.smartcodeless.exception.ErrorCode;
 import io.github.bonigarcia.wdm.WebDriverManager;
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.OutputType;
@@ -27,23 +26,15 @@ import java.util.UUID;
 @Slf4j
 public class WebScreenshotUtils {
 
-    private static final WebDriver webDriver;
+    private static final int DEFAULT_WIDTH = 1600;
+    private static final int DEFAULT_HEIGHT = 900;
 
     // 全局静态初始化，避免重复初始化驱动程序：
     // 静态代码块里面加载东西
-    static {
-        final int DEFAULT_WIDTH = 1600;
-        final int DEFAULT_HEIGHT = 900;
-        webDriver = initChromeDriver(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-    }
 
     /**
      * 退出时销毁
      */
-    @PreDestroy
-    public void destroy() {
-        webDriver.quit();
-    }
 
 
     /**
@@ -58,7 +49,9 @@ public class WebScreenshotUtils {
             log.error("网页截图失败，url为空");
             return null;
         }
+        WebDriver webDriver = null;
         try {
+            webDriver = initChromeDriver(DEFAULT_WIDTH, DEFAULT_HEIGHT);
             String rootPath = System.getProperty("user.dir") + "/tmp/screenshots/" + UUID.randomUUID().toString().substring(0, 8);
             FileUtil.mkdir(rootPath);
             // 图片后缀
@@ -86,6 +79,14 @@ public class WebScreenshotUtils {
         }catch (Exception e){
             log.error("网页截图失败：{}", webUrl, e);
             return null;
+        } finally {
+            if (webDriver != null) {
+                try {
+                    webDriver.quit();
+                } catch (Exception e) {
+                    log.warn("关闭 ChromeDriver 失败", e);
+                }
+            }
         }
     }
 

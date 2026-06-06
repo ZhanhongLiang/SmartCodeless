@@ -5,6 +5,7 @@ import com.robotlive.smartcodeless.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +21,8 @@ import java.nio.file.Paths;
 @Slf4j
 @Component
 public class FileDeleteTool extends BaseTool {
+    @Resource
+    private ToolEventPublisher toolEventPublisher;
 
     @Tool("删除指定路径的文件")
     public String deleteFile(
@@ -28,6 +31,7 @@ public class FileDeleteTool extends BaseTool {
             @ToolMemoryId Long appId
     ) {
 
+        long startedAt = toolEventPublisher.started(appId, getToolName(), DiffUtils.summarize("delete", relativeFilePath));
         try {
             Path path = Paths.get(relativeFilePath);
             if (!path.isAbsolute()) {
@@ -36,23 +40,30 @@ public class FileDeleteTool extends BaseTool {
                 path = projectRoot.resolve(relativeFilePath);
             }
             if (!Files.exists(path)) {
+                toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("delete missing", relativeFilePath), startedAt);
                 return "警告：文件不存在，无需删除 - " + relativeFilePath;
             }
             if (!Files.isRegularFile(path)) {
+                toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("delete not-file", relativeFilePath), startedAt);
                 return "错误：指定路径不是文件，无法删除 - " + relativeFilePath;
             }
             // 安全检查：避免删除重要文件
             String fileName = path.getFileName().toString();
             if (isImportantFile(fileName)) {
+                toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("delete protected", relativeFilePath), startedAt);
                 return "错误：不允许删除重要文件 - " + fileName;
             }
+            String oldContent = Files.readString(path);
             Files.delete(path);
             log.info("成功删除文件: {}", path.toAbsolutePath());
+            toolEventPublisher.fileDiff(appId, DiffUtils.createDiff(relativeFilePath, oldContent, "", "delete"));
+            toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("delete", relativeFilePath), startedAt);
             return "文件删除成功: " + relativeFilePath;
 
         }catch (IOException e) {
             String errorMessage = "删除文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
+            toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("delete failed", relativeFilePath), startedAt);
             return errorMessage;
         }
     }

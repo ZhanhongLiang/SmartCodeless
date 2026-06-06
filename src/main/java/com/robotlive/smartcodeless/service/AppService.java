@@ -8,6 +8,7 @@ import com.robotlive.smartcodeless.model.dto.app.AppQueryRequest;
 import com.robotlive.smartcodeless.model.entity.App;
 import com.robotlive.smartcodeless.model.entity.User;
 import com.robotlive.smartcodeless.model.vo.AppVO;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEmitter;
 import jakarta.servlet.http.HttpServletRequest;
 import reactor.core.publisher.Flux;
 
@@ -42,6 +43,8 @@ public interface AppService extends IService<App> {
      * @return
      */
     Flux<String> chatToGenCode(Long appId, String message, User loginUser);
+
+    void chatToGenCodeV2(Long appId, String message, User loginUser, AgentStreamEmitter emitter, boolean enableDiff);
 
     /**
      * 应用部署

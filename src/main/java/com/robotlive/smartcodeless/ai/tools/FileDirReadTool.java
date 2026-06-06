@@ -7,6 +7,7 @@ import com.robotlive.smartcodeless.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,8 @@ import java.util.Set;
 @Slf4j
 @Component
 public class FileDirReadTool extends BaseTool {
+    @Resource
+    private ToolEventPublisher toolEventPublisher;
 
     /**
      * 需要忽略的文件和目录
@@ -45,6 +48,7 @@ public class FileDirReadTool extends BaseTool {
             String relativeDirPath,
             @ToolMemoryId Long appId
     ) {
+        long startedAt = toolEventPublisher.started(appId, getToolName(), DiffUtils.summarize("readDir", relativeDirPath));
         try {
             Path path = Paths.get(relativeDirPath == null ? "" : relativeDirPath);
             if (!path.isAbsolute()) {
@@ -56,6 +60,7 @@ public class FileDirReadTool extends BaseTool {
 
             File targetDir = path.toFile();
             if (!targetDir.exists() || !targetDir.isDirectory()) {
+                toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("readDir missing", relativeDirPath), startedAt);
                 return "错误：目录不存在或不是目录 - " + relativeDirPath;
             }
             StringBuilder structure = new StringBuilder();
@@ -80,10 +85,12 @@ public class FileDirReadTool extends BaseTool {
                         String indent = "  ".repeat(depth);
                         structure.append(indent).append(file.getName());
                     });
+            toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("readDir", relativeDirPath), startedAt);
             return structure.toString();
         }catch (Exception e) {
             String errorMessage = "读取目录结构失败: " + relativeDirPath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
+            toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("readDir failed", relativeDirPath), startedAt);
             return errorMessage;
         }
     }

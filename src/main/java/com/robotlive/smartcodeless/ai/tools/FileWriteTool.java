@@ -6,6 +6,7 @@ import com.robotlive.smartcodeless.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +23,9 @@ import java.nio.file.StandardOpenOption;
 @Slf4j
 @Component
 public class FileWriteTool extends BaseTool{
+    @Resource
+    private ToolEventPublisher toolEventPublisher;
+
     /**
      * 这个是VUE工程保存文件的地方, 就是利用这个
      * @param relativeFilePath
@@ -37,6 +41,7 @@ public class FileWriteTool extends BaseTool{
             String content,
             @ToolMemoryId Long appId
     ) {
+        long startedAt = toolEventPublisher.started(appId, getToolName(), DiffUtils.summarize("write", relativeFilePath));
         try{
             Path path = Paths.get(relativeFilePath);
 
@@ -52,15 +57,20 @@ public class FileWriteTool extends BaseTool{
                 Files.createDirectories(parentDir);
             }
             // 写入文件内容
+            String oldContent = Files.exists(path) && Files.isRegularFile(path) ? Files.readString(path) : "";
             Files.write(path, content.getBytes(),
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
             log.info("成功写入文件: {}", path.toAbsolutePath());
+            String changeType = oldContent.isEmpty() ? "create" : "modify";
+            toolEventPublisher.fileDiff(appId, DiffUtils.createDiff(relativeFilePath, oldContent, content, changeType));
+            toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("write", relativeFilePath), startedAt);
             // 注意要返回相对路径，不能让 AI 把文件绝对路径返回给用户
             return "文件写入成功: " + relativeFilePath;
         } catch (IOException e) {
             String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
+            toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("write failed", relativeFilePath), startedAt);
             return errorMessage;
         }
     }

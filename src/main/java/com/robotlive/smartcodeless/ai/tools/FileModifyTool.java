@@ -5,6 +5,7 @@ import com.robotlive.smartcodeless.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -22,6 +23,8 @@ import java.nio.file.StandardOpenOption;
 @Component
 public class FileModifyTool extends BaseTool {
 
+    @Resource
+    private ToolEventPublisher toolEventPublisher;
 
     @Tool("修改文件内容，用新内容替换指定的旧内容")
     public String modifyFile(
@@ -33,6 +36,7 @@ public class FileModifyTool extends BaseTool {
             String newContent,
             @ToolMemoryId Long appId
     ) {
+        long startedAt = toolEventPublisher.started(appId, getToolName(), DiffUtils.summarize("modify", relativeFilePath));
         try {
             Path path = Paths.get(relativeFilePath);
             if (!path.isAbsolute()) {
@@ -41,22 +45,28 @@ public class FileModifyTool extends BaseTool {
                 path = projectRoot.resolve(relativeFilePath);
             }
             if (!Files.exists(path) || !Files.isRegularFile(path)) {
+                toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("modify missing", relativeFilePath), startedAt);
                 return "错误：文件不存在或不是文件 - " + relativeFilePath;
             }
             String originalContent = Files.readString(path);
             if (!originalContent.contains(oldContent)) {
+                toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("modify no-match", relativeFilePath), startedAt);
                 return "警告：文件中未找到要替换的内容，文件未修改 - " + relativeFilePath;
             }
             String modifiedContent = originalContent.replace(oldContent, newContent);
             if (originalContent.equals(modifiedContent)) {
+                toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("modify unchanged", relativeFilePath), startedAt);
                 return "信息：替换后文件内容未发生变化 - " + relativeFilePath;
             }
             Files.writeString(path, modifiedContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             log.info("成功修改文件: {}", path.toAbsolutePath());
+            toolEventPublisher.fileDiff(appId, DiffUtils.createDiff(relativeFilePath, originalContent, modifiedContent, "modify"));
+            toolEventPublisher.success(appId, getToolName(), DiffUtils.summarize("modify", relativeFilePath), startedAt);
             return "文件修改成功: " + relativeFilePath;
         } catch (IOException e) {
             String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
             log.error(errorMessage, e);
+            toolEventPublisher.failed(appId, getToolName(), DiffUtils.summarize("modify failed", relativeFilePath), startedAt);
             return errorMessage;
         }
     }

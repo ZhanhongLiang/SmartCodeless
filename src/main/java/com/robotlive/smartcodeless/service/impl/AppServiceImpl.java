@@ -10,6 +10,9 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.robotlive.smartcodeless.ai.AiCodeGenTypeRoutingService;
 import com.robotlive.smartcodeless.ai.AiCodeGenTypeRoutingServiceFactory;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEmitter;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEventType;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamPayloads;
 import com.robotlive.smartcodeless.constant.AppConstant;
 import com.robotlive.smartcodeless.core.AiCodeGeneratorFacade;
 import com.robotlive.smartcodeless.core.builder.VueProjectBuilder;
@@ -326,6 +329,37 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 //                });
     }
 
+    @Override
+    public void chatToGenCodeV2(Long appId, String message, User loginUser, AgentStreamEmitter emitter, boolean enableDiff) {
+        emitter.status("preparing", "Preparing generation request");
+        ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR,"应用 ID 错误");
+        ThrowUtils.throwIf(StrUtil.isBlank(message),ErrorCode.PARAMS_ERROR, "输入提示词为空");
+        App app = this.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权访问该应用");
+        }
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(app.getCodeGenType());
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "应用代码生成类型错误");
+        }
+        emitter.status("saving-user-message", "Saving user message");
+        chatHistoryService.addChatMessage(appId,message, ChatHistoryMessageTypeEnum.USER.getValue(),loginUser.getId());
+        emitter.status("generating", "AI is generating code");
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStreamV2(message, codeGenTypeEnum, appId, emitter, enableDiff);
+        Flux<String> handledStream = streamHandlerExecutor.doExecuteV2(
+                codeStream,
+                chatHistoryService,
+                appId,
+                loginUser,
+                codeGenTypeEnum,
+                emitter);
+        handledStream.doOnNext(chunk ->
+                        emitter.publish(AgentStreamEventType.MESSAGE, AgentStreamPayloads.message(chunk)))
+                .blockLast();
+        emitter.status("refreshing-preview", "Generation completed, preview can refresh");
+    }
+
     /**
      * nginx服务器端部署
      * @param appId 应用 ID
@@ -400,14 +434,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     public void generateAppScreenshotAsync(Long appId, String appUrl) {
         // 使用虚拟线程并执行
         Thread.startVirtualThread(() -> {
-            // 调用截图服务生成截图并上传
-            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
-            // 更新数据库的封面
-            App updateApp = new App();
-            updateApp.setId(appId);
-            updateApp.setCover(screenshotUrl);
-            boolean updated = this.updateById(updateApp);
-            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            try {
+                // 调用截图服务生成截图并上传
+                String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+                // 更新数据库的封面
+                App updateApp = new App();
+                updateApp.setId(appId);
+                updateApp.setCover(screenshotUrl);
+                boolean updated = this.updateById(updateApp);
+                ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            } catch (Exception e) {
+                log.warn("应用部署成功，但异步截图失败，appId: {}, url: {}", appId, appUrl, e);
+            }
         });
     }
 
@@ -428,10 +466,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         app.setUserId(loginUser.getId());
         // 应用名称暂时为 initPrompt 前 12 位
         app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
-        // 使用 AI 智能选择代码生成类型（多例模式）
-        AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
-        // 使用 AI 智能选择代码生成类型
-        CodeGenTypeEnum selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        // 使用 AI 智能选择代码生成类型；本地 AI 配置不可用时回退，避免创建应用链路被分类模型阻断
+        CodeGenTypeEnum selectedCodeGenType;
+        try {
+            AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
+            selectedCodeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
+        } catch (Exception e) {
+            log.warn("代码生成类型智能路由失败，回退到 VUE_PROJECT，原因: {}", e.getMessage());
+            selectedCodeGenType = CodeGenTypeEnum.VUE_PROJECT;
+        }
         app.setCodeGenType(selectedCodeGenType.getValue());
         // 插入数据库
         boolean result = this.save(app);

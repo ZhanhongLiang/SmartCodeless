@@ -3,6 +3,9 @@ package com.robotlive.smartcodeless.core.handler;
 
 import com.robotlive.smartcodeless.model.entity.User;
 import com.robotlive.smartcodeless.model.enums.CodeGenTypeEnum;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEmitter;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamEventType;
+import com.robotlive.smartcodeless.ai.stream.AgentStreamPayloads;
 import com.robotlive.smartcodeless.service.ChatHistoryService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -41,5 +44,18 @@ public class StreamHandlerExecutor {
             case HTML, MULTI_FILE -> // 简单文本处理器不需要依赖注入
                     new SimpleTextStreamHandler().handle(originFlux, chatHistoryService, appId, loginUser);
         };
+    }
+
+    public Flux<String> doExecuteV2(Flux<String> originFlux,
+                                    ChatHistoryService chatHistoryService,
+                                    long appId, User loginUser, CodeGenTypeEnum codeGenType,
+                                    AgentStreamEmitter emitter) {
+        return doExecute(originFlux, chatHistoryService, appId, loginUser, codeGenType)
+                .doOnComplete(() -> emitter.publish(
+                        AgentStreamEventType.STATUS,
+                        AgentStreamPayloads.status("saving-history", "AI message saved")))
+                .doOnError(error -> emitter.publish(
+                        AgentStreamEventType.ERROR,
+                        AgentStreamPayloads.error("STREAM_ERROR", "AI stream failed")));
     }
 }

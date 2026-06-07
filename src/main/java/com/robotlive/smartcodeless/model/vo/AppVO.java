@@ -48,6 +48,12 @@ public class AppVO implements Serializable {
      */
     private LocalDateTime deployedTime;
 
+    private String deployStatus;
+
+    private Long buildTaskId;
+
+    private String buildErrorMessage;
+
     /**
      * 优先级
      */

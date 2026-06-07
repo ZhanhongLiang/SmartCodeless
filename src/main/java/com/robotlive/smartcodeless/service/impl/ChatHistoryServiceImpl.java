@@ -75,6 +75,27 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
         return this.save(chatHistory);
     }
 
+    @Override
+    public void attachVersionToRecentMessages(Long appId, Long userId, Integer roundNo, String commitId) {
+        if (appId == null || userId == null || roundNo == null || StrUtil.isBlank(commitId)) {
+            return;
+        }
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .eq("appId", appId)
+                .eq("userId", userId)
+                .isNull("commitId")
+                .orderBy("createTime", false)
+                .limit(2);
+        List<ChatHistory> recentMessages = this.list(queryWrapper);
+        for (ChatHistory chatHistory : recentMessages) {
+            ChatHistory update = new ChatHistory();
+            update.setId(chatHistory.getId());
+            update.setRoundNo(roundNo);
+            update.setCommitId(commitId);
+            this.updateById(update);
+        }
+    }
+
 
     /**
      * 删除应用

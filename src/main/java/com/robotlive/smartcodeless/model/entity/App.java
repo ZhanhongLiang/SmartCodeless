@@ -71,6 +71,15 @@ public class App implements Serializable {
     @Column("deployedTime")
     private LocalDateTime deployedTime;
 
+    @Column("deployStatus")
+    private String deployStatus;
+
+    @Column("buildTaskId")
+    private Long buildTaskId;
+
+    @Column("buildErrorMessage")
+    private String buildErrorMessage;
+
     /**
      * 优先级
      */

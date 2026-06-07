@@ -4,58 +4,31 @@ import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
-import java.io.Serializable;
-import java.time.LocalDateTime;
-
-import java.io.Serial;
-
-import com.mybatisflex.core.keygen.KeyGenerators;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * 对话历史 实体类。
- *
- * @author <a href="https://github.com/ZhanhongLiang">Jean</a>
- */
+import java.io.Serial;
+import java.io.Serializable;
+import java.time.LocalDateTime;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Table("chat_history")
-public class ChatHistory implements Serializable {
+@Table("app_version")
+public class AppVersion implements Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /**
-     * id
-     */
-    @Id(keyType = KeyType.Generator,value = KeyGenerators.snowFlakeId)
+    @Id(keyType = KeyType.Auto)
     private Long id;
 
-    /**
-     * 消息
-     */
-    private String message;
-
-    /**
-     * user/ai
-     */
-    @Column("messageType")
-    private String messageType;
-
-    /**
-     * 应用id
-     */
     @Column("appId")
     private Long appId;
 
-    /**
-     * 创建用户id
-     */
     @Column("userId")
     private Long userId;
 
@@ -65,22 +38,31 @@ public class ChatHistory implements Serializable {
     @Column("commitId")
     private String commitId;
 
-    /**
-     * 创建时间
-     */
+    @Column("commitMessage")
+    private String commitMessage;
+
+    @Column("promptSummary")
+    private String promptSummary;
+
+    @Column("codeGenType")
+    private String codeGenType;
+
+    @Column("versionType")
+    private String versionType;
+
+    @Column("rollbackFromCommitId")
+    private String rollbackFromCommitId;
+
+    @Column("buildTaskId")
+    private Long buildTaskId;
+
     @Column("createTime")
     private LocalDateTime createTime;
 
-    /**
-     * 更新时间
-     */
     @Column("updateTime")
     private LocalDateTime updateTime;
 
-    /**
-     * 是否删除
-     */
     @Column(value = "isDelete", isLogicDelete = true)
     private Integer isDelete;
-
 }
+

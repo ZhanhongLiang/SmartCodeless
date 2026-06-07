@@ -30,12 +30,14 @@ import com.robotlive.smartcodeless.model.enums.CodeGenTypeEnum;
 import com.robotlive.smartcodeless.model.vo.AppVO;
 import com.robotlive.smartcodeless.model.vo.UserVO;
 import com.robotlive.smartcodeless.service.AppService;
+import com.robotlive.smartcodeless.service.AppVersionService;
 import com.robotlive.smartcodeless.service.ChatHistoryService;
 import com.robotlive.smartcodeless.service.ScreenshotService;
 import com.robotlive.smartcodeless.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -78,6 +80,9 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
     @Resource
     private ScreenshotService screenshotService;
+
+    @Resource
+    private ObjectProvider<AppVersionService> appVersionServiceProvider;
 
 //    @Resource
 //    private AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService;
@@ -308,7 +313,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         // 6. 调用 AI 生成代码（流式）
         Flux<String> codeStream   = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenTypeEnum, appId);
         // 收集 AI 响应的内容，并且在完成后保存记录到对话历史
-        return streamHandlerExecutor.doExecute(codeStream,chatHistoryService,appId,loginUser,codeGenTypeEnum);
+        return streamHandlerExecutor.doExecute(codeStream,chatHistoryService,appId,loginUser,codeGenTypeEnum)
+                .doOnComplete(() -> createVersionSnapshot(appId, loginUser, message, null));
 
         // 7. 收集 AI 响应的内容，并且在完成后保存记录到对话历史
 //        StringBuilder aiResponseBuilder = new StringBuilder();
@@ -357,7 +363,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         handledStream.doOnNext(chunk ->
                         emitter.publish(AgentStreamEventType.MESSAGE, AgentStreamPayloads.message(chunk)))
                 .blockLast();
+        createVersionSnapshot(appId, loginUser, message, emitter);
         emitter.status("refreshing-preview", "Generation completed, preview can refresh");
+    }
+
+    private void createVersionSnapshot(Long appId, User loginUser, String message, AgentStreamEmitter emitter) {
+        AppVersionService appVersionService = appVersionServiceProvider.getIfAvailable();
+        if (appVersionService == null) {
+            log.warn("AppVersionService is unavailable, skip version snapshot, appId={}", appId);
+            return;
+        }
+        appVersionService.createAiGenerationVersion(appId, loginUser, message, emitter);
     }
 
     /**

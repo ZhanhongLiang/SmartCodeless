@@ -19,10 +19,12 @@ import com.robotlive.smartcodeless.model.dto.app.*;
 import com.robotlive.smartcodeless.model.entity.User;
 import com.robotlive.smartcodeless.model.enums.CodeGenTypeEnum;
 import com.robotlive.smartcodeless.model.enums.UserRoleEnum;
+import com.robotlive.smartcodeless.model.vo.BuildTaskSubmitVO;
 import com.robotlive.smartcodeless.model.vo.AppVO;
 import com.robotlive.smartcodeless.ratelimiter.annotation.RateLimit;
 import com.robotlive.smartcodeless.ratelimiter.enums.RateLimitType;
 import com.robotlive.smartcodeless.service.ProjectDownloadService;
+import com.robotlive.smartcodeless.service.BuildTaskService;
 import com.robotlive.smartcodeless.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -62,6 +64,9 @@ public class AppController {
 
     @Resource
     private ProjectDownloadService projectDownloadService;
+
+    @Resource
+    private BuildTaskService buildTaskService;
 
     /**
      * 添加对话App
@@ -386,7 +391,7 @@ public class AppController {
      * @return 部署 URL
      */
     @PostMapping("/deploy")
-    public BaseResponse<String> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
+    public BaseResponse<BuildTaskSubmitVO> deployApp(@RequestBody AppDeployRequest appDeployRequest, HttpServletRequest request) {
         // 检查部署请求是否为空
         ThrowUtils.throwIf(appDeployRequest == null, ErrorCode.PARAMS_ERROR);
         // 获取应用 ID
@@ -395,10 +400,8 @@ public class AppController {
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR, "应用 ID 不能为空");
         // 获取当前登录用户
         User loginUser = userService.getLoginUser(request);
-        // 调用服务部署应用
-        String deployUrl = appService.deployApp(appId, loginUser);
-        // 返回部署 URL
-        return ResultUtils.success(deployUrl);
+        BuildTaskSubmitVO result = buildTaskService.submitBuildTask(appId, loginUser, "DEPLOY");
+        return ResultUtils.success(result);
     }
 
     /**

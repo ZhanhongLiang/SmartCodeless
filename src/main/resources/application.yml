@@ -20,6 +20,16 @@ spring:
       password:
       database: 1
       ttl: 3600
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        acknowledge-mode: manual
+        retry:
+          enabled: false
   profiles:
     active: local
 server:
@@ -35,7 +45,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.robotlive.smartcodeless.controller
+      packages-to-scan: com.robotlive.smartcodeless
 
 # knife4j
 knife4j:

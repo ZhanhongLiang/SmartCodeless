@@ -18,6 +18,7 @@ import com.robotlive.smartcodeless.model.enums.BuildStatusEnum;
 import com.robotlive.smartcodeless.model.enums.UserRoleEnum;
 import com.robotlive.smartcodeless.model.vo.BuildTaskSubmitVO;
 import com.robotlive.smartcodeless.model.vo.BuildTaskVO;
+import com.robotlive.smartcodeless.sandbox.SandboxContainerService;
 import com.robotlive.smartcodeless.service.AppService;
 import com.robotlive.smartcodeless.service.BuildTaskService;
 import jakarta.annotation.Resource;
@@ -51,6 +52,9 @@ public class BuildTaskServiceImpl extends ServiceImpl<BuildTaskMapper, BuildTask
 
     @Resource
     private VueProjectBuildExecutor vueProjectBuildExecutor;
+
+    @Resource
+    private SandboxContainerService sandboxContainerService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -169,6 +173,7 @@ public class BuildTaskServiceImpl extends ServiceImpl<BuildTaskMapper, BuildTask
             VueProjectBuildExecutor.BuildExecutionResult result = vueProjectBuildExecutor.execute(task.getId(), app);
             markSuccess(task, result);
             buildLogAppender.system(task.getId(), task.getAppId(), "Build task succeeded");
+            startSandboxPreview(app, result, task.getId());
             appService.generateAppScreenshotAsync(app.getId(), result.getDeployUrl());
             return true;
         } catch (Exception e) {
@@ -225,6 +230,15 @@ public class BuildTaskServiceImpl extends ServiceImpl<BuildTaskMapper, BuildTask
         updateApp.setDeployStatus(BuildStatusEnum.FAILED.getValue());
         updateApp.setBuildErrorMessage(safeMessage);
         appService.updateById(updateApp);
+    }
+
+    private void startSandboxPreview(App app, VueProjectBuildExecutor.BuildExecutionResult result, Long taskId) {
+        try {
+            sandboxContainerService.startForBuild(app, result, taskId);
+        } catch (Exception e) {
+            log.warn("Sandbox preview startup failed for app {}", app.getId(), e);
+            buildLogAppender.error(taskId, app.getId(), "Sandbox preview unavailable, static preview fallback remains available");
+        }
     }
 
     private void publishAfterCommit(BuildTaskMessage message) {

@@ -1,0 +1,15 @@
+package com.robotlive.smartcodeless.model.enums;
+
+public enum QualityFailureCategoryEnum {
+    DEPENDENCY_POLICY_ERROR,
+    NPM_SCRIPT_POLICY_ERROR,
+    DEPENDENCY_INSTALL_ERROR,
+    TYPESCRIPT_ERROR,
+    VITE_BUILD_ERROR,
+    IMPORT_RESOLUTION_ERROR,
+    ROUTE_ERROR,
+    PREVIEW_HTTP_ERROR,
+    PREVIEW_BLANK_SCREEN,
+    SECURITY_POLICY_ERROR,
+    UNKNOWN_ERROR
+}

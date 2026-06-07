@@ -1,0 +1,48 @@
+{
+  "dependencies": [
+    "@vitejs/plugin-vue",
+    "antd",
+    "axios",
+    "dayjs",
+    "highlight.js",
+    "lodash",
+    "markdown-it",
+    "pinia",
+    "vue",
+    "vue-router"
+  ],
+  "devDependencies": [
+    "@tsconfig/node22",
+    "@types/lodash",
+    "@types/markdown-it",
+    "@types/node",
+    "@vitejs/plugin-vue",
+    "@vue/tsconfig",
+    "eslint",
+    "jiti",
+    "npm-run-all2",
+    "prettier",
+    "typescript",
+    "vite",
+    "vite-plugin-vue-devtools",
+    "vue-tsc"
+  ],
+  "blockedScripts": [
+    "postinstall",
+    "preinstall",
+    "install",
+    "prepare",
+    "node -e",
+    "curl",
+    "wget",
+    "powershell",
+    "bash",
+    "sh",
+    "rm -rf",
+    "del /s",
+    "format",
+    "chmod",
+    "sudo",
+    "docker"
+  ]
+}

@@ -4,6 +4,8 @@ public enum AgentStreamEventType {
     THOUGHT("thought"),
     STATUS("status"),
     TOOL_CALL("tool_call"),
+    VISION_ANALYSIS("vision_analysis"),
+    LAYOUT_PLAN("layout_plan"),
     FILE_DIFF("file_diff"),
     CODE_BLOCK("code_block"),
     MESSAGE("message"),

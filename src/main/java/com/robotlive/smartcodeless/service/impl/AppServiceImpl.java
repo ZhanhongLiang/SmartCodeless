@@ -337,9 +337,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
 
     @Override
     public void chatToGenCodeV2(Long appId, String message, User loginUser, AgentStreamEmitter emitter, boolean enableDiff) {
+        chatToGenCodeV2(appId, message, message, loginUser, emitter, enableDiff);
+    }
+
+    @Override
+    public void chatToGenCodeV2(Long appId, String message, String generationPrompt, User loginUser, AgentStreamEmitter emitter, boolean enableDiff) {
         emitter.status("preparing", "Preparing generation request");
         ThrowUtils.throwIf(appId == null || appId <= 0, ErrorCode.PARAMS_ERROR,"应用 ID 错误");
         ThrowUtils.throwIf(StrUtil.isBlank(message),ErrorCode.PARAMS_ERROR, "输入提示词为空");
+        ThrowUtils.throwIf(StrUtil.isBlank(generationPrompt),ErrorCode.PARAMS_ERROR, "AI generation prompt cannot be blank");
         App app = this.getById(appId);
         ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         if (!app.getUserId().equals(loginUser.getId())) {
@@ -352,7 +358,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         emitter.status("saving-user-message", "Saving user message");
         chatHistoryService.addChatMessage(appId,message, ChatHistoryMessageTypeEnum.USER.getValue(),loginUser.getId());
         emitter.status("generating", "AI is generating code");
-        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStreamV2(message, codeGenTypeEnum, appId, emitter, enableDiff);
+        Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStreamV2(generationPrompt, codeGenTypeEnum, appId, emitter, enableDiff);
         Flux<String> handledStream = streamHandlerExecutor.doExecuteV2(
                 codeStream,
                 chatHistoryService,

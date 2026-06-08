@@ -233,8 +233,10 @@ public class AiCodeGeneratorFacade {
                         sink.complete();
                     })
                     .onError((Throwable error) -> {
+                        log.error("AI token stream failed, appId={}", appId, error);
                         emitter.publish(AgentStreamEventType.ERROR,
-                                AgentStreamPayloads.error("AI_ERROR", "AI generation failed"));
+                                AgentStreamPayloads.error("AI_ERROR",
+                                        "AI 生成失败：" + AgentStreamPayloads.errorMessage(error)));
                         sink.error(error);
                     })
                     .start();

@@ -46,6 +46,8 @@ public interface AppService extends IService<App> {
 
     void chatToGenCodeV2(Long appId, String message, User loginUser, AgentStreamEmitter emitter, boolean enableDiff);
 
+    void chatToGenCodeV2(Long appId, String message, String generationPrompt, User loginUser, AgentStreamEmitter emitter, boolean enableDiff);
+
     /**
      * 应用部署
      *

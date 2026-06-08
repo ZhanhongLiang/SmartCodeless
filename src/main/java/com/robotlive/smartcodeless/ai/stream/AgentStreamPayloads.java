@@ -48,6 +48,19 @@ public final class AgentStreamPayloads {
         return payload;
     }
 
+    public static String errorMessage(Throwable error) {
+        if (error == null) {
+            return "未知错误";
+        }
+        String message = error.getMessage();
+        if (message == null || message.isBlank()) {
+            message = error.getClass().getSimpleName();
+        } else {
+            message = error.getClass().getSimpleName() + ": " + message;
+        }
+        return safeText(message);
+    }
+
     public static Map<String, Object> done(String message) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("message", safeText(message));

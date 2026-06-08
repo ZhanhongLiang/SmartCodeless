@@ -47,7 +47,8 @@ public class AgentStreamPublisher {
                 } catch (Throwable e) {
                     log.error("Agent stream failed, requestId={}, appId={}", requestId, appId, e);
                     emitter.publish(AgentStreamEventType.ERROR,
-                            AgentStreamPayloads.error("SYSTEM_ERROR", "Generation failed, please try again later."));
+                            AgentStreamPayloads.error("SYSTEM_ERROR",
+                                    "生成失败：" + AgentStreamPayloads.errorMessage(e)));
                     sink.complete();
                 } finally {
                     emitter.close();

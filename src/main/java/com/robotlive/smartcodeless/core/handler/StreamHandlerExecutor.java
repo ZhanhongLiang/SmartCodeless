@@ -56,6 +56,7 @@ public class StreamHandlerExecutor {
                         AgentStreamPayloads.status("saving-history", "AI message saved")))
                 .doOnError(error -> emitter.publish(
                         AgentStreamEventType.ERROR,
-                        AgentStreamPayloads.error("STREAM_ERROR", "AI stream failed")));
+                        AgentStreamPayloads.error("STREAM_ERROR",
+                                "AI 流处理失败：" + AgentStreamPayloads.errorMessage(error))));
     }
 }
